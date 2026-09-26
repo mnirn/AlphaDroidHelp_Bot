@@ -1,5 +1,7 @@
 import cachetools.func
 import datetime as dt
+import re
+from html import escape
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
@@ -24,7 +26,7 @@ def get_download_links(device_code):
         response = requests.get(json_url, timeout=10)
         
         if response.status_code == 404:
-            return f"❌ Device with codename *{device_code}* was not found. Please check the spelling.", None
+            return f"❌ Device with codename <b>{escape(device_code)}</b> was not found. Please check the spelling.", None
 
         response.raise_for_status()
         data = response.json()
@@ -34,32 +36,51 @@ def get_download_links(device_code):
             return "❌ No builds found for this device.", None
 
         first_entry = roms[0]
-        maintainer = first_entry.get("maintainer", "Unknown")
-        version = first_entry.get("version", "Unknown")
-        
+        maintainer = escape(str(first_entry.get("maintainer", "Unknown")))
+        version = escape(str(first_entry.get("version", "Unknown")))
+
+        release_date = None
+        release_date_str = "Unknown"
         try:
-            major_version = float(version.split(".")[0])
-            default_version = float(default_branch.split("-")[1]) // 1
-            release_date = dt.date.fromtimestamp(first_entry.get("timestamp", 0))
-            status_icon = "🔴"
-            if major_version >= default_version - 12 or dt.date.today() - release_date <= dt.timedelta(180):
-                status_icon = "🟢"
-            status_text = "Active" if status_icon == "🟢" else "Inactive"
-        except (ValueError, IndexError):
-            status_icon, status_text = "⚪", "Unknown"
+            timestamp = int(first_entry.get("timestamp") or 0)
+            if timestamp > 0:
+                release_date = dt.date.fromtimestamp(timestamp)
+                release_date_str = escape(release_date.isoformat())
+        except (ValueError, TypeError, OSError, OverflowError):
+            release_date = None
+
+        status_icon, status_text = "⚪", "Unknown"
+        try:
+            if release_date is not None:
+                recent = dt.date.today() - release_date <= dt.timedelta(days=180)
+                branch_match = re.search(r"(\d+)", str(default_branch))
+                branch_major = int(branch_match.group(1)) if branch_match else None
+                filename_match = re.search(r"AlphaDroid-(\d+)-", str(first_entry.get("filename", "")))
+                rom_major = int(filename_match.group(1)) if filename_match else None
+                if recent:
+                    status_icon, status_text = "🟢", "Active"
+                elif branch_major is not None and rom_major is not None:
+                    if rom_major >= branch_major:
+                        status_icon, status_text = "🟢", "Active"
+                    else:
+                        status_icon, status_text = "🔴", "Inactive"
+                else:
+                    status_icon, status_text = "🔴", "Inactive"
+        except (ValueError, TypeError):
+            pass
 
         build_types = set()
         for rom in roms:
-            variant = rom.get("buildvariant", rom.get("buildtype", "Vanilla")).capitalize()
+            variant = escape(str(rom.get("buildvariant", rom.get("buildtype", "Vanilla"))).capitalize())
             build_types.add(variant)
 
         message = (
-            f"✅ *Latest AlphaDroid for {device_code}:*\n\n"
-            f"📱 Version: *{version}*\n"
-            f"🗓 Release date: *{release_date.isoformat()}*\n"
-            f"{status_icon} Status: *{status_text}*\n"
-            f"🛠 Build Types: *{', '.join(build_types)}*\n"
-            f"🧑‍💻 Maintainer: *{maintainer}*\n"
+            f"✅ <b>Latest AlphaDroid for {escape(device_code)}:</b>\n\n"
+            f"📱 Version: <b>{version}</b>\n"
+            f"🗓 Release date: <b>{release_date_str}</b>\n"
+            f"{status_icon} Status: <b>{status_text}</b>\n"
+            f"🛠 Build Types: <b>{', '.join(sorted(build_types))}</b>\n"
+            f"🧑‍💻 Maintainer: <b>{maintainer}</b>\n"
         )
 
         keyboard = []
@@ -85,24 +106,24 @@ def get_download_links(device_code):
     except requests.exceptions.Timeout:
         return "⚠️ The server is taking too long to respond. Please try again later.", None
     except Exception as e:
-        return f"❌ An unexpected error occurred: {str(e)}", None
+        return f"❌ An unexpected error occurred: {escape(str(e))}", None
 
 async def alpha(update: Update, context: CallbackContext) -> None:
     args = update.message.text.split()
-    
+
     if len(args) < 2:
         await update.message.reply_text(
-            "⚠️ Please provide a device code.\nExample: `/alpha sunny`", 
-            parse_mode="Markdown"
+            "⚠️ Please provide a device code.\nExample: <code>/alpha sunny</code>",
+            parse_mode="HTML"
         )
         return
 
     device_code = args[1]
     result_text, reply_markup = get_download_links(device_code)
-    
+
     await update.message.reply_text(
-        result_text, 
-        parse_mode="Markdown", 
-        disable_web_page_preview=True, 
+        result_text,
+        parse_mode="HTML",
+        disable_web_page_preview=True,
         reply_markup=reply_markup
     )

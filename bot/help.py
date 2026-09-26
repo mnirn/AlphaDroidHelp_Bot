@@ -9,6 +9,7 @@ async def help(update: Update, context: CallbackContext) -> None:
         "/apply — Apply for official maintainership\n"
         "/contribute — Learn how to support or contribute to the project\n"
         "/devices — See the list of supported devices\n"
+        "/ping — Check if the bot is alive and its response time\n"
         "/releases — Stay up to date with AlphaDroid releases\n"
         "/source — View AlphaDroid’s and Bot's source code\n"
         "/start — Make sure the bot is alive\n"
